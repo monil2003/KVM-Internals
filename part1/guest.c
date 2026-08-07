@@ -21,8 +21,9 @@ void HC_print8bit(uint8_t val)
 
 void HC_print32bit(uint32_t val)
 {
-	val++;
+	// val++;
 	/* Write code here */
+	outl(0xEA, val);
 }
 
 uint32_t HC_numExits()
@@ -34,7 +35,7 @@ uint32_t HC_numExits()
 
 void HC_printStr(char *str)
 {
-	str++;
+	(void)str;
 	/* Write code here */
 }
 
@@ -47,7 +48,7 @@ char *HC_numExitsByType()
 
 uint32_t HC_gvaToHva(uint32_t gva)
 {
-	gva++;
+	(void)gva;
 	uint32_t hva = 0;
 	/* Write code here */
 	return hva;

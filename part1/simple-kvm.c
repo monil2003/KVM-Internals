@@ -183,13 +183,28 @@ int run_vm(struct vm *vm, struct vcpu *vcpu, size_t sz)
 			goto check;
 
 		case KVM_EXIT_IO:
-			if (vcpu->kvm_run->io.direction == KVM_EXIT_IO_OUT && vcpu->kvm_run->io.port == 0xE9)
+			if (vcpu->kvm_run->io.direction == KVM_EXIT_IO_OUT)
 			{
 				char *p = (char *)vcpu->kvm_run;
-				fwrite(p + vcpu->kvm_run->io.data_offset,
-					   vcpu->kvm_run->io.size, 1, stdout);
-				fflush(stdout);
-				continue;
+				switch (vcpu->kvm_run->io.port)
+				{
+				case 0xE9:
+					fwrite(p + vcpu->kvm_run->io.data_offset,
+						vcpu->kvm_run->io.size, 1, stdout);
+					fflush(stdout);
+					continue;
+				case 0xEA:
+					uint32_t value;
+
+					memcpy(&value,
+						p + vcpu->kvm_run->io.data_offset,
+						sizeof(value));
+
+					printf("%u\n", value);
+					fflush(stdout);
+
+					continue;
+				}
 			}
 
 			/* fall through */
