@@ -169,6 +169,13 @@ int run_vm(struct vm *vm, struct vcpu *vcpu, size_t sz)
 	struct kvm_regs regs;
 	uint64_t memval = 0;
 
+	uint32_t exit_count = 0;
+	uint32_t io_in_count = 0;
+	uint32_t io_out_count = 0;
+
+	uint32_t requested_gva = 0;
+	uint32_t hva = 0;
+
 	for (;;)
 	{
 		if (ioctl(vcpu->vcpu_fd, KVM_RUN, 0) < 0)
@@ -176,36 +183,81 @@ int run_vm(struct vm *vm, struct vcpu *vcpu, size_t sz)
 			perror("KVM_RUN");
 			exit(1);
 		}
-
+		exit_count++;
 		switch (vcpu->kvm_run->exit_reason)
 		{
 		case KVM_EXIT_HLT:
 			goto check;
 
 		case KVM_EXIT_IO:
-			if (vcpu->kvm_run->io.direction == KVM_EXIT_IO_OUT)
-			{
-				char *p = (char *)vcpu->kvm_run;
-				switch (vcpu->kvm_run->io.port)
-				{
-				case 0xE9:
-					fwrite(p + vcpu->kvm_run->io.data_offset,
-						vcpu->kvm_run->io.size, 1, stdout);
-					fflush(stdout);
+			if (vcpu->kvm_run->io.direction == KVM_EXIT_IO_IN)
+                io_in_count++;
+            if (vcpu->kvm_run->io.direction == KVM_EXIT_IO_OUT)
+                io_out_count++;
+
+			if (vcpu->kvm_run->io.direction == KVM_EXIT_IO_OUT && vcpu->kvm_run->io.port == 0xE9)
+            {
+                char *p = (char *)vcpu->kvm_run;
+                fwrite(p + vcpu->kvm_run->io.data_offset,
+                       vcpu->kvm_run->io.size, 1, stdout);
+                fflush(stdout);
+                continue;
+            }
+            // HC_print32bit
+        	if (vcpu->kvm_run->io.direction == KVM_EXIT_IO_OUT && vcpu->kvm_run->io.port == 0xEA){
+                uint32_t *p = (uint32_t *)((char *)vcpu->kvm_run + vcpu->kvm_run->io.data_offset);
+                fprintf(stdout, "%u\n", *p);
+                fflush(stdout);
+                continue;
+            }
+			// HC_numExits
+			if (vcpu->kvm_run->io.direction == KVM_EXIT_IO_IN && vcpu->kvm_run->io.port == 0xEB){
+					uint32_t *memory = (uint32_t *)((char *)vcpu->kvm_run + vcpu->kvm_run->io.data_offset);
+					*memory = exit_count;
 					continue;
-				case 0xEA:
-					uint32_t value;
-
-					memcpy(&value,
-						p + vcpu->kvm_run->io.data_offset,
-						sizeof(value));
-
-					printf("%u\n", value);
-					fflush(stdout);
-
-					continue;
-				}
 			}
+			if (vcpu->kvm_run->io.direction == KVM_EXIT_IO_OUT && vcpu->kvm_run->io.port == 0xEC){
+				uint32_t *gva = (uint32_t *)((char *)vcpu->kvm_run + vcpu->kvm_run->io.data_offset);
+				char *str = vm->mem + *gva;
+				fprintf(stdout, "%s", str);
+                fflush(stdout);
+                continue;
+			}
+			if (vcpu->kvm_run->io.direction == KVM_EXIT_IO_IN && vcpu->kvm_run->io.port == 0xED){
+				char buf[50];
+                sprintf(buf, "IO in: %u\nIO out: %u\n", io_in_count, io_out_count);
+                uint32_t *mem = (uint32_t *)((char *)vcpu->kvm_run + vcpu->kvm_run->io.data_offset);
+                strncpy((char *)vm->mem + *mem, buf, 50);
+                continue;
+			}
+			else if (vcpu->kvm_run->io.direction == KVM_EXIT_IO_OUT && vcpu->kvm_run->io.port == 0xEE)
+            {
+                requested_gva = *((uint32_t *)((char *)vcpu->kvm_run + vcpu->kvm_run->io.data_offset));
+                struct kvm_translation translation;
+                translation.linear_address = requested_gva;
+
+                if (ioctl(vcpu->vcpu_fd, KVM_TRANSLATE, &translation) < 0)
+                {
+                    printf("KVM_TRANSLATE failed: %s\n", strerror(errno));
+                    return 0;
+                }
+                if (!(translation.valid))
+                {
+                    printf("Invalid GVA\n");
+                    hva = 0;
+                }
+                else
+                {
+                    hva = (uint32_t)((uintptr_t)vm->mem + translation.physical_address);
+                }
+                continue;
+            }
+			else if (vcpu->kvm_run->io.direction == KVM_EXIT_IO_IN && vcpu->kvm_run->io.port == 0xEF)
+            {
+                uint32_t *memory = (uint32_t *)((char *)vcpu->kvm_run + vcpu->kvm_run->io.data_offset);
+                *memory = hva;
+                continue;
+            }
 
 			/* fall through */
 		default:

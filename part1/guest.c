@@ -1,6 +1,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+static char fBuffer[50];
+static char sBuffer[50];
+int flag = 1;
+
 static void outb(uint16_t port, uint8_t value)
 {
 	asm("outb %0,%1" : /* empty */ : "a"(value), "Nd"(port) : "memory");
@@ -8,10 +12,13 @@ static void outb(uint16_t port, uint8_t value)
 
 static void outl(uint16_t port, uint32_t value)
 {
-    asm("outl %0,%1"
-        :
-        : "a"(value), "Nd"(port)
-        : "memory");
+    asm("outl %0,%1" :     : "a"(value), "Nd"(port) : "memory");
+}
+static uint32_t inl(uint16_t port)
+{
+    uint32_t value;
+    asm volatile("inl %1, %0" : "=a"(value): "Nd"(port): "memory");
+    return value;
 }
 
 void HC_print8bit(uint8_t val)
@@ -21,36 +28,39 @@ void HC_print8bit(uint8_t val)
 
 void HC_print32bit(uint32_t val)
 {
-	// val++;
-	/* Write code here */
 	outl(0xEA, val);
 }
 
 uint32_t HC_numExits()
 {
-	uint32_t val = 0;
-	/* Write code here */
+	uint32_t val = inl(0xEB);
+	// outl(0xEA, val);
 	return val;
 }
 
 void HC_printStr(char *str)
 {
-	(void)str;
-	/* Write code here */
+    outl(0xEC, (uint32_t)(uintptr_t)str);
 }
 
 char *HC_numExitsByType()
 {
-	/* Write code here */
+	char *str = (char *)(uintptr_t)inl(0xED);
+	char *buffer = (flag == 1) ? fBuffer : sBuffer;
+    flag ^= 1;
 
-	return NULL;
+    int index = 0;
+    for (index = 0; str[index] != '\0'; index++)
+        buffer[index] = str[index];
+    buffer[index] = '\0';
+
+    return buffer;
 }
 
 uint32_t HC_gvaToHva(uint32_t gva)
 {
-	(void)gva;
-	uint32_t hva = 0;
-	/* Write code here */
+	outl(0xEE, gva);
+	uint32_t hva = inl(0xEF);
 	return hva;
 }
 

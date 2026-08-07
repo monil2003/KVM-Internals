@@ -1,24 +1,119 @@
-# CS695 Assignment 2 - Part 1
+# DIY Hypervisor – Understanding Linux KVM Internals
 
-simple-kvm is a very simple example program to demonstrate the use of the KVM API provided by the Linux kernel. Tested in Intel processors with the VMX hardware virtualization extensions and AMD processors with AMD-V hardware virtualization extensions.
+DIY Hypervisor is an educational project built using the Linux Kernel-based Virtual Machine (KVM) API to explore the internals of hardware-assisted virtualization. The goal is to understand how a userspace hypervisor creates and manages virtual machines, handles VM exits, implements custom hypercalls, performs guest memory translation, and eventually schedules multiple guest VMs.
 
-## How to run
+This repository is being developed incrementally as a learning project. The current implementation focuses on hypervisor fundamentals and custom hypercalls, with later stages extending the hypervisor with multi-VM scheduling and communication mechanisms.
 
-Performing ```make``` or ```make run``` will compile the program and run the program all modes. Otherwise he program can be run in 4 modes specifically using the following commands:
+---
 
-````bash
-make simple-kvm
-./simple-kvm
-./simple-kvm -s
-./simple-kvm -p
-./simple-kvm -l
-````
+## Current Progress
 
-Performing a ```make clean``` will remove the executable and the object files.
+### Part 1 — Hypercalls and VM Internals
 
-### A couple of aspects are worth noting
+- Built a minimal userspace hypervisor using the Linux KVM API
+- Booted guests in
+  - Real Mode
+  - Protected Mode
+  - 32-bit Paging
+  - 64-bit Long Mode
+- Implemented hardware-assisted hypercalls
+- Counted and classified VM exits
+- Implemented Guest Virtual Address (GVA) to Host Virtual Address (HVA) translation using `KVM_TRANSLATE`
 
-Note that the Intel VMX extensions did not initially implement support for real mode.  In fact, they restricted VMX guests to paged protected
-mode.  VMM / Hypervisor were expected to emulate the unsupported modes in software, only employing VMX when a guest had entered paged protected mode.  Later VMX implementations include *Unrestricted Guest Mode*: support for virtualization of all x86 modes in hardware.
+### Planned Extensions
 
-The code run in the VM code exits with a HLT instruction.  There are many ways to cause a VM exit, so why use a HLT instruction?  The most obvious way might be the VMCALL (or VMMCALL on AMD) instruction, which it specifically intended to call out to the hypervisor.  But it turns out the KVM reserves VMCALL/VMMCALL for its internal hypercall mechanism, without notifying the userspace VM host program of the VM exits caused by these instructions.  So we need some other way to trigger a VM exit.  HLT is convenient because it is a single-byte instruction.
+- Multi-VM execution
+- Custom VM scheduler
+- Producer–consumer communication between guest VMs
+- Bursty and non-deterministic scheduling policies
+
+---
+
+## Implemented Hypercalls
+
+| Hypercall | Description |
+|-----------|-------------|
+| `HC_print8bit()` | Prints a single character from the guest using an I/O hypercall |
+| `HC_print32bit()` | Transfers and prints a 32-bit integer from the guest |
+| `HC_numExits()` | Returns the total number of VM exits encountered during execution |
+| `HC_printStr()` | Prints an entire guest string using a single VM exit |
+| `HC_numExitsByType()` | Returns the number of IO-IN and IO-OUT VM exits |
+| `HC_gvaToHva()` | Translates a Guest Virtual Address into the corresponding Host Virtual Address using `KVM_TRANSLATE` |
+
+---
+
+## Concepts Explored
+
+- Linux KVM userspace API
+- Virtual machine creation
+- Virtual CPU (vCPU) management
+- Guest memory mapping
+- VM exits
+- Hardware-assisted hypercalls
+- Guest ↔ Hypervisor communication
+- I/O virtualization
+- Guest virtual memory translation
+- Protected Mode initialization
+- Paging
+- Long Mode initialization
+
+---
+
+## Repository Structure
+
+```
+DIY-Hypervisor/
+├── part1/
+│   ├── Makefile
+│   ├── README.md
+│   ├── guest.c
+│   ├── guest16.s
+│   ├── guest.ld
+│   ├── payload.ld
+│   └── simple-kvm.c
+│
+└── part2/      # Multi-VM scheduling (under development)
+```
+
+---
+
+## Building
+
+```bash
+cd part1
+make
+```
+
+---
+
+## Running
+
+```bash
+./simple-kvm       # Real Mode
+./simple-kvm -s    # Protected Mode
+./simple-kvm -p    # 32-bit Paging
+./simple-kvm -l    # 64-bit Long Mode
+```
+
+---
+
+## Learning Outcomes
+
+Through this project I gained practical experience with:
+
+- Building a userspace hypervisor using the Linux KVM API
+- Managing guest execution through VM exits
+- Designing hardware-assisted hypercalls
+- Accessing guest memory from the hypervisor
+- Translating Guest Virtual Addresses using `KVM_TRANSLATE`
+- Understanding CPU execution modes and memory virtualization
+
+---
+
+## Acknowledgements
+
+The initial implementation was inspired by a graduate-level virtualization assignment focused on Linux KVM and hardware-assisted virtualization. This repository extends those ideas into a personal learning project with additional documentation, code organization, and planned extensions for virtual machine scheduling and communication.
+
+**Reference**
+
+https://docs.google.com/document/d/e/2PACX-1vQcjg6HkPm47_L1DrLH8X6EqhRqr_lF2KmH8fk3fCnOPspRIzKLeVTiPoUJ9CGn3-FIrr5xilD96tN-/pub
