@@ -1,4 +1,4 @@
-# DIY Hypervisor
+# KVM Internals
 
 A minimal educational hypervisor built directly on top of the Linux Kernel-based Virtual Machine (KVM) API.
 
