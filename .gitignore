@@ -5,7 +5,11 @@
 
 # Executables
 simple-kvm
-matrix
+emu
+emu1
+emu2
+emu3
+emu4
 
 # Compiled libraries
 *.a
