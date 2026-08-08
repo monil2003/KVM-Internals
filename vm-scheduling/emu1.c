@@ -203,9 +203,7 @@ void kvm_reset_vcpu(struct vcpu *vcpu)
     }
 }
 
-void *kvm_cpu_thread(void *data)
-{
-    // Copy the code from this function to your code implementation in kvm_run_vm() and modify it accordingly
+void *kvm_cpu_thread(void *data){
     struct vm *vm = (struct vm *)data;
     int ret = 0;
     kvm_reset_vcpu(vm->vcpus);
@@ -260,20 +258,78 @@ exit_kvm:
 
 void kvm_run_vm(struct vm *vm1, struct vm *vm2)
 {
-    if (pthread_create(&(vm1->vcpus->vcpu_thread), (const pthread_attr_t *)NULL, vm1->vcpus->vcpu_thread_func, vm1) != 0)
-    {
-        perror("can not create kvm thread");
-        exit(1);
-    }
-    if (pthread_create(&(vm2->vcpus->vcpu_thread), (const pthread_attr_t *)NULL, vm2->vcpus->vcpu_thread_func, vm2) != 0)
-    {
-        perror("can not create kvm thread");
-        exit(1);
-    }
-    pthread_join(vm1->vcpus->vcpu_thread, NULL);
-    pthread_join(vm2->vcpus->vcpu_thread, NULL);
+    struct vm *vm = (struct vm *)vm1;
+    int value = 0;
+    struct vcpu *vcpu;
+    int vm1_done = 0, vm2_done = 0;
+    kvm_reset_vcpu(vm1->vcpus);
+    kvm_reset_vcpu(vm2->vcpus);
+    while(!vm1_done || !vm2_done){
+        struct vcpu *vcpu = vm->vcpus;
+        int ret=ioctl(vcpu->vcpu_fd, KVM_RUN, 0);
+        if(ret<0){
+            printf("VMFD: %d stopped running - exit reason: %d\n", vm->vm_fd, vm->vcpus->kvm_run->exit_reason);
+            exit(1);
+        }
+        switch (vcpu->kvm_run->exit_reason){
+            case KVM_EXIT_UNKNOWN:
+                printf("VMFD: %d KVM_EXIT_UNKNOWN\n", vm->vm_fd);
+                break;
+            case KVM_EXIT_DEBUG:
+                printf("VMFD: %d KVM_EXIT_DEBUG\n", vm->vm_fd);
+                break;
+            case KVM_EXIT_IO:
+                int *data = (int *)((char *)vcpu->kvm_run + vcpu->kvm_run->io.data_offset);
+                if (vm == vm1 && vcpu->kvm_run->io.direction == KVM_EXIT_IO_OUT && vcpu->kvm_run->io.port == 0x10){
+                    value = *data;
+                    printf("VMFD: %d KVM_EXIT_IO\n", vm->vm_fd);
+                    printf("VMFD: %d Produced value: %u\n",vm->vm_fd, value);
+                    vm = vm2;
+                }
+                else if (vm == vm2 && vcpu->kvm_run->io.direction == KVM_EXIT_IO_IN && vcpu->kvm_run->io.port == 0x11){
+                    printf("VMFD: %d KVM_EXIT_IO\n", vm->vm_fd);
+                    printf("VMFD: %d Consuming the number\n", vm->vm_fd);
+                    *data = value;
+                }
+                else if (vm == vm2 && vcpu->kvm_run->io.direction == KVM_EXIT_IO_OUT && vcpu->kvm_run->io.port == 0x12){
+                    printf("VMFD: %d KVM_EXIT_IO\n", vm->vm_fd);
+                    printf("VMFD: %d Consumed value: %u\n",vm->vm_fd, *data);
+                    vm = vm1;
+                }
+                else{
+                    fprintf(stderr, "Unexpected KVM_EXIT_IO\n");
+                    exit(1);
+                }
+                sleep(1);
+                break;
+            case KVM_EXIT_MMIO:
+                printf("VMFD: %d KVM_EXIT_MMIO\n", vm->vm_fd);
+                break;
+            case KVM_EXIT_INTR:
+                printf("VMFD: %d KVM_EXIT_INTR\n", vm->vm_fd);
+                break;
+            case KVM_EXIT_SHUTDOWN:
+                printf("VMFD: %d KVM_EXIT_SHUTDOWN\n", vm->vm_fd);
+                if (vm == vm1)
+                    vm1_done = 1;
+                else
+                    vm2_done = 1;
+                break;
+            default:
+                printf("VMFD: %d KVM PANIC\n", vm->vm_fd);
+                printf("VMFD: %d KVM exit reason: %d\n", vm->vm_fd, vm->vcpus->kvm_run->exit_reason);
+                if (vm == vm1)
+                    vm1_done = 1;
+                else
+                    vm2_done = 1;
+            }
 
-    // Remove everything in the function above this line and replace it with your code here
+        if (ret < 0 && vm->vcpus->kvm_run->exit_reason != KVM_EXIT_INTR){
+            fprintf(stderr, "VMFD: %d KVM_RUN failed\n", vm->vm_fd);
+            printf("VMFD: %d KVM_RUN return value %d\n", vm->vm_fd, ret);
+            exit(1);
+        }
+    }
 }
 
 void kvm_clean_vm(struct vm *vm)

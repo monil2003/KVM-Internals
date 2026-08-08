@@ -76,9 +76,6 @@ struct vcpu
 	struct kvm_run *kvm_run;
 };
 
-/* Data from sched.txt */
-char sched_order[100];
-
 void vm_init(struct vm *vm, size_t mem_size)
 {
 	int kvm_version;
@@ -167,72 +164,93 @@ void vcpu_init(struct vm *vm, struct vcpu *vcpu)
 	}
 }
 
-/*	Modify this function to complete part 2.4 */
-/*	sched_order holds the scheduling order for the VMs
-	each VM when "scheduled" should read producer-consumer
-	buffer state, act on it and convey the new state back
-	to the hypervisor.
-*/
 int run_vm(struct vm *vm1, struct vm *vm2, struct vcpu *vcpu1, struct vcpu *vcpu2, size_t sz)
 {
 	struct kvm_regs regs;
-	struct vm *vm = NULL;
-	struct vcpu *vcpu = NULL;
-	uint64_t memval = 0;
-	for (;;)
-	{
-		if (ioctl(vcpu->vcpu_fd, KVM_RUN, 0) < 0)
-		{
-			perror("KVM_RUN");
-			exit(1);
-		}
-		sleep(1);
-		switch (vcpu->kvm_run->exit_reason)
-		{
-		case KVM_EXIT_HLT:
-			goto check;
+    struct vm *vm = vm2;
+    struct vcpu *vcpu = vcpu2;
+    uint64_t memval = 0;
+    uint32_t *consumer_arr = NULL;
+    for (;;){
+        if (ioctl(vcpu->vcpu_fd, KVM_RUN, 0) < 0)
+        {
+            perror("KVM_RUN");
+            exit(1);
+        }
+        sleep(1);
+        switch (vcpu->kvm_run->exit_reason){
+			case KVM_EXIT_HLT:
+				goto check;
 
-		case KVM_EXIT_IO:
-			if (vcpu->kvm_run->io.direction == KVM_EXIT_IO_OUT && vcpu->kvm_run->io.port == 0xE9)
-			{ // HC_print8bit
-				char *p = (char *)vcpu->kvm_run;
-				fwrite(p + vcpu->kvm_run->io.data_offset,
-					   vcpu->kvm_run->io.size, 1, stdout);
-				fflush(stdout);
-				continue;
-			}
-
-			/* fall through */
-		default:
-			fprintf(stderr, "Got exit_reason %d,"
-							" expected KVM_EXIT_HLT (%d)\n",
-					vcpu->kvm_run->exit_reason, KVM_EXIT_HLT);
-			exit(1);
-		}
-	}
+			case KVM_EXIT_IO:
+				if (vcpu->kvm_run->io.direction == KVM_EXIT_IO_OUT && vcpu->kvm_run->io.port == 0x10)
+				{
+					uint32_t gva = *((uint32_t *)((char *)vcpu->kvm_run + vcpu->kvm_run->io.data_offset));
+					uint32_t *hva = (uint32_t *)((char *)vm->mem + gva);
+					printf("VMFD: %d Produced Values: ", vm->vm_fd);
+					for (int i = 0; i < 5; i++)
+					{
+						consumer_arr[i] = hva[i];
+						printf("%u ", consumer_arr[i]);
+					}
+					printf("\n");
+					vm = vm2;
+            		vcpu = vcpu2;
+					continue;
+				}
+				else if (vcpu->kvm_run->io.direction == KVM_EXIT_IO_OUT && vcpu->kvm_run->io.port == 0x11)
+				{
+					uint32_t gva = *((uint32_t *)((char *)vcpu->kvm_run + vcpu->kvm_run->io.data_offset));
+					uint32_t *hva = (uint32_t *)((char *)vm->mem + gva);
+					consumer_arr = hva;
+					vm = vm1;
+            		vcpu = vcpu1;
+					continue;
+				}
+				else if (vcpu->kvm_run->io.direction == KVM_EXIT_IO_OUT && vcpu->kvm_run->io.port == 0x12)
+				{
+					uint32_t gva = *((uint32_t *)((char *)vcpu->kvm_run + vcpu->kvm_run->io.data_offset));
+					uint32_t *hva = (uint32_t *)((char *)vm->mem + gva);
+					printf("VMFD: %d Consumed Values: ", vm->vm_fd);
+					for (int i = 0; i < 5; i++)
+					{
+						printf("%u ", hva[i]);
+					}
+					printf("\n");
+					vm = vm1;
+            		vcpu = vcpu1;
+					continue;
+				}
+			default:
+				fprintf(stderr, "Got exit_reason %d,"
+								" expected KVM_EXIT_HLT (%d)\n",
+						vcpu->kvm_run->exit_reason, KVM_EXIT_HLT);
+				exit(1);
+        }
+    }
 
 check:
-	if (ioctl(vcpu->vcpu_fd, KVM_GET_REGS, &regs) < 0)
-	{
-		perror("KVM_GET_REGS");
-		exit(1);
-	}
+    if (ioctl(vcpu->vcpu_fd, KVM_GET_REGS, &regs) < 0)
+    {
+        perror("KVM_GET_REGS");
+        exit(1);
+    }
 
-	if (regs.rax != 42)
-	{
-		printf("Wrong result: {E,R,}AX is %lld\n", regs.rax);
-		return 0;
-	}
+    if (regs.rax != 42)
+    {
+        printf("Wrong result: {E,R,}AX is %lld\n", regs.rax);
+        return 0;
+    }
 
-	memcpy(&memval, &vm->mem[0x400], sz);
-	if (memval != 42)
-	{
-		printf("Wrong result: memory at 0x400 is %lld\n",
-			   (unsigned long long)memval);
-		return 0;
-	}
+    memcpy(&memval, &vm->mem[0x400], sz);
+    if (memval != 42)
+    {
+        printf("Wrong result: memory at 0x400 is %lld\n",
+               (unsigned long long)memval);
+        return 0;
+    }
 
-	return 1;
+    return 1;
 }
 
 static void setup_protected_mode(struct kvm_sregs *sregs)
@@ -259,8 +277,8 @@ static void setup_protected_mode(struct kvm_sregs *sregs)
 	sregs->ds = sregs->es = sregs->fs = sregs->gs = sregs->ss = seg;
 }
 
-extern const unsigned char guest4a[], guest4a_end[];
-extern const unsigned char guest4b[], guest4b_end[];
+extern const unsigned char guest3a[], guest3a_end[];
+extern const unsigned char guest3b[], guest3b_end[];
 
 int run_protected_mode1(struct vm *vm, struct vcpu *vcpu)
 {
@@ -293,8 +311,8 @@ int run_protected_mode1(struct vm *vm, struct vcpu *vcpu)
 		exit(1);
 	}
 
-	memcpy(vm->mem, guest4a, guest4a_end - guest4a);
-	printf("VMFD: %d Loaded Program with size: %ld", vm->vm_fd, guest4a_end - guest4a);
+	memcpy(vm->mem, guest3a, guest3a_end - guest3a);
+	printf("VMFD: %d Loaded Program with size: %ld \n", vm->vm_fd, guest3a_end - guest3a);
 	return 0;
 }
 
@@ -329,39 +347,15 @@ int run_protected_mode2(struct vm *vm, struct vcpu *vcpu)
 		exit(1);
 	}
 
-	memcpy(vm->mem, guest4b, guest4b_end - guest4b);
-	printf("VMFD: %d Loaded Program with size: %ld", vm->vm_fd, guest4b_end - guest4b);
+	memcpy(vm->mem, guest3b, guest3b_end - guest3b);
+	printf("VMFD: %d Loaded Program with size: %ld \n", vm->vm_fd, guest3b_end - guest3b);
 	return 0;
 }
 
-void read_sched_file(char *filename)
-{
-	int fd = open(filename, O_RDONLY);
-	if (fd < 0)
-	{
-		fprintf(stderr, "Error in opening file");
-		exit(EXIT_FAILURE);
-	}
-	int rc = read(fd, sched_order, 100);
-	if (rc < 0)
-	{
-		fprintf(stderr, "Error in opening file");
-		exit(EXIT_FAILURE);
-	}
-}
-
-int main(int argc, char **argv)
+int main()
 {
 	struct vm vm1, vm2;
 	struct vcpu vcpu1, vcpu2;
-
-	if (argc != 2)
-	{
-		fprintf(stderr, "Usage: %s filename\n",
-				argv[0]);
-		return 1;
-	}
-	read_sched_file(argv[1]);
 
 	vm_init(&vm1, 0x200000);
 	vm_init(&vm2, 0x200000);
