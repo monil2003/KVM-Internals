@@ -25,3 +25,6 @@ emu4
 
 # MAC OS
 .DS_Store
+
+# PDF
+*.pdf
